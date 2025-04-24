@@ -1,0 +1,9 @@
+[package]
+name = "html_to_pdf"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+wkhtmlapp = "=1.0.1"
+wkhtmltopdf = "0.4.0"
