@@ -1,57 +1,150 @@
-use std::{fs, io};
+use std::{fs, path::Path};
 use wkhtmltopdf::{Margin, Orientation, PdfApplication, Size, pdf};
 
-fn convert(html_content: &str) {
-    println!("Hello, world!");
-    // make program wait for 4 seconds before proceeding
-    std::thread::sleep(std::time::Duration::from_secs(4));
-    println!("waited for 4 seconds...");
-    let pdf_app = PdfApplication::new().expect("failed to initialize app");
-    let mut pdf_builder = pdf_app
-        .builder()
-        .orientation(Orientation::Portrait)
-        .page_size(pdf::PageSize::A4)
-        .margin(Margin::from(Size::Inches(2)))
-        .title("HTML to PDF testing")
-        .build_from_html(&html_content)
-        .expect("failed to build pdf");
-    pdf_builder.save("test.pdf").expect("failed to save pdf");
-    println!("generated PDF saved as: test.pdf");
-    manipulate_files().expect("failed to manipulate files");
+struct ConversionOptions {
+    orientation: Orientation,
+    page_size: pdf::PageSize,
+    margin_inches: f64,
+    title: String,
 }
 
-fn manipulate_files() -> io::Result<()> {
-    let original_file = "test.pdf";
-    let new_file = "test_new.pdf";
-
-    fs::rename(original_file, new_file).expect("failed to rename file");
-    println!("File renamed to: {}", new_file);
-
-    // create directories
-    fs::create_dir_all("path/to/destination1").expect("failed to create directory");
-    fs::create_dir_all("path/to/destination2").expect("failed to create directory");
-    fs::create_dir_all("path/to/destination3").expect("failed to create directory");
-    fs::create_dir_all("path/to/destination4").expect("failed to create directory");
-    fs::create_dir_all("path/to/destination5").expect("failed to create directory");
-
-    // List of 5 destination paths
-    let destinations = vec![
-        "path/to/destination1/file.pdf",
-        "path/to/destination2/file-2.pdf",
-        "path/to/destination3/file-3.pdf",
-        "path/to/destination4/file-4.pdf",
-        "path/to/destination5/file-5.pdf",
-    ];
-
-    // Copy to each destination
-    for dest in destinations {
-        fs::copy(&new_file, dest)?;
-        println!("Copied to {}", dest);
+impl Default for ConversionOptions {
+    fn default() -> Self {
+        Self {
+            orientation: Orientation::Portrait,
+            page_size: pdf::PageSize::A4,
+            margin_inches: 1.0,
+            title: "HTML to PDF conversion".to_string(),
+        }
     }
+}
 
+fn convert_single(pdf_app: &PdfApplication, html_content: &str, output_path: &str, options: &ConversionOptions) -> Result<(), String> {
+    let mut pdf_builder = pdf_app
+        .builder()
+        .orientation(options.orientation)
+        .page_size(options.page_size)
+        .margin(Margin::from(Size::Inches(options.margin_inches)))
+        .title(&options.title)
+        .build_from_html(&html_content)
+        .map_err(|e| format!("failed to build pdf: {}", e))?;
+    
+    pdf_builder.save(output_path).map_err(|e| format!("failed to save pdf to {}: {}", output_path, e))?;
+    println!("Generated PDF saved as: {}", output_path);
     Ok(())
 }
 
+fn batch_convert(items: Vec<(String, String, Option<ConversionOptions>)>) -> Vec<Result<(), String>> {
+    println!("Starting batch conversion of {} files...", items.len());
+    
+    // Initialize the PDF application once for all conversions
+    let pdf_app = match PdfApplication::new() {
+        Ok(app) => app,
+        Err(e) => {
+            println!("Failed to initialize PDF application: {}", e);
+            return vec![Err(format!("Failed to initialize PDF application: {}", e)); items.len()];
+        }
+    };
+    
+    let results = items.iter()
+        .map(|(html, output_path, options)| {
+            println!("Converting to: {}", output_path);
+            // Create parent directory if it doesn't exist
+            if let Some(parent) = Path::new(output_path).parent() {
+                if !parent.exists() {
+                    fs::create_dir_all(parent)
+                        .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))
+                        .unwrap_or_else(|e| println!("Warning: {}", e));
+                }
+            }
+            
+            // Use provided options or default
+            let options = options.as_ref().unwrap_or(&ConversionOptions::default());
+            convert_single(&pdf_app, html, output_path, options)
+        })
+        .collect();
+    
+    println!("Batch conversion completed!");
+    results
+}
+
+fn batch_convert_from_files(file_paths: Vec<(String, String, Option<ConversionOptions>)>) -> Vec<Result<(), String>> {
+    // Convert file paths to HTML content
+    let items: Vec<(String, String, Option<ConversionOptions>)> = file_paths
+        .into_iter()
+        .map(|(html_path, output_path, options)| {
+            match fs::read_to_string(&html_path) {
+                Ok(content) => (content, output_path, options),
+                Err(e) => (
+                    String::new(), 
+                    output_path.clone(), 
+                    None
+                ), // Empty content will cause an error in conversion
+            }
+        })
+        .collect();
+    
+    batch_convert(items)
+}
+
 fn main() {
-    convert("<html><body><h1>Hello, world!</h1></body></html>");
+    // Example 1: Converting HTML strings to PDFs
+    let html_items = vec![
+        (
+            "<html><body><h1>Hello, world!</h1></body></html>".to_string(),
+            "output/file1.pdf".to_string(),
+            None
+        ),
+        (
+            "<html><body><h1>Second document</h1><p>This is another PDF</p></body></html>".to_string(),
+            "output/file2.pdf".to_string(),
+            Some(ConversionOptions {
+                orientation: Orientation::Landscape,
+                margin_inches: 0.5,
+                ..ConversionOptions::default()
+            })
+        ),
+        (
+            "<html><body><h1>Third document</h1><p>Yet another PDF</p></body></html>".to_string(),
+            "output/file3.pdf".to_string(),
+            None
+        ),
+    ];
+    
+    println!("Example 1: Converting HTML strings");
+    let results = batch_convert(html_items);
+    
+    // Print any errors that occurred during batch conversion
+    for (i, result) in results.iter().enumerate() {
+        if let Err(err) = result {
+            println!("Error converting item {}: {}", i + 1, err);
+        }
+    }
+    
+    // Example 2: Converting HTML files to PDFs (uncomment and modify paths as needed)
+    println!("\nExample 2: Converting HTML files");
+    let file_items = vec![
+        (
+            "input/page1.html".to_string(),
+            "output/from_file1.pdf".to_string(),
+            None
+        ),
+        (
+            "input/page2.html".to_string(),
+            "output/from_file2.pdf".to_string(),
+            Some(ConversionOptions {
+                title: "From File 2".to_string(),
+                ..ConversionOptions::default()
+            })
+        ),
+    ];
+    
+    let file_results = batch_convert_from_files(file_items);
+    
+    // Print any errors that occurred during batch conversion
+    for (i, result) in file_results.iter().enumerate() {
+        if let Err(err) = result {
+            println!("Error converting file {}: {}", i + 1, err);
+        }
+    }
 }
