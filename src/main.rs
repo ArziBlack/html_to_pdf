@@ -4,7 +4,7 @@ use wkhtmltopdf::{Margin, Orientation, PdfApplication, Size, pdf};
 struct ConversionOptions {
     orientation: Orientation,
     page_size: pdf::PageSize,
-    margin_inches: f64,
+    margin_inches: u32,
     title: String,
 }
 
@@ -13,7 +13,7 @@ impl Default for ConversionOptions {
         Self {
             orientation: Orientation::Portrait,
             page_size: pdf::PageSize::A4,
-            margin_inches: 1.0,
+            margin_inches: 1,
             title: "HTML to PDF conversion".to_string(),
         }
     }
@@ -59,7 +59,8 @@ fn batch_convert(items: Vec<(String, String, Option<ConversionOptions>)>) -> Vec
             }
             
             // Use provided options or default
-            let options = options.as_ref().unwrap_or(&ConversionOptions::default());
+            let default_options = ConversionOptions::default();
+            let options = options.as_ref().unwrap_or(&default_options);
             convert_single(&pdf_app, html, output_path, options)
         })
         .collect();
@@ -75,7 +76,7 @@ fn batch_convert_from_files(file_paths: Vec<(String, String, Option<ConversionOp
         .map(|(html_path, output_path, options)| {
             match fs::read_to_string(&html_path) {
                 Ok(content) => (content, output_path, options),
-                Err(e) => (
+                Err(_e) => (
                     String::new(), 
                     output_path.clone(), 
                     None
@@ -100,7 +101,7 @@ fn main() {
             "output/file2.pdf".to_string(),
             Some(ConversionOptions {
                 orientation: Orientation::Landscape,
-                margin_inches: 0.5,
+                margin_inches: 1,
                 ..ConversionOptions::default()
             })
         ),
@@ -122,6 +123,7 @@ fn main() {
     }
     
     // Example 2: Converting HTML files to PDFs (uncomment and modify paths as needed)
+    /*
     println!("\nExample 2: Converting HTML files");
     let file_items = vec![
         (
@@ -147,4 +149,5 @@ fn main() {
             println!("Error converting file {}: {}", i + 1, err);
         }
     }
+    */
 }
