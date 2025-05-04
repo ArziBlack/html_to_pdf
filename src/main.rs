@@ -35,17 +35,8 @@ fn convert_single(pdf_app: &PdfApplication, html_content: &str, output_path: &st
     Ok(())
 }
 
-fn batch_convert(items: Vec<(String, String, Option<ConversionOptions>)>) -> Vec<Result<(), String>> {
+fn batch_convert(pdf_app: &PdfApplication, items: Vec<(String, String, Option<ConversionOptions>)>) -> Vec<Result<(), String>> {
     println!("Starting batch conversion of {} files...", items.len());
-    
-    // Initialize the PDF application once for all conversions
-    let pdf_app = match PdfApplication::new() {
-        Ok(app) => app,
-        Err(e) => {
-            println!("Failed to initialize PDF application: {}", e);
-            return vec![Err(format!("Failed to initialize PDF application: {}", e)); items.len()];
-        }
-    };
     
     let results = items.iter()
         .map(|(html, output_path, options)| {
@@ -62,7 +53,7 @@ fn batch_convert(items: Vec<(String, String, Option<ConversionOptions>)>) -> Vec
             // Use provided options or default
             let default_options = ConversionOptions::default();
             let options = options.as_ref().unwrap_or(&default_options);
-            convert_single(&pdf_app, html, output_path, options)
+            convert_single(pdf_app, html, output_path, options)
         })
         .collect();
     
@@ -70,14 +61,14 @@ fn batch_convert(items: Vec<(String, String, Option<ConversionOptions>)>) -> Vec
     results
 }
 
-fn _batch_convert_from_files(file_paths: Vec<(String, String, Option<ConversionOptions>)>) -> Vec<Result<(), String>> {
+fn batch_convert_from_files(pdf_app: &PdfApplication, file_paths: Vec<(String, String, Option<ConversionOptions>)>) -> Vec<Result<(), String>> {
     // Convert file paths to HTML content
     let items: Vec<(String, String, Option<ConversionOptions>)> = file_paths
         .into_iter()
         .map(|(html_path, output_path, options)| {
             match fs::read_to_string(&html_path) {
                 Ok(content) => (content, output_path, options),
-                Err(_e) => (
+                Err(e) => (
                     String::new(), 
                     output_path.clone(), 
                     None
@@ -86,13 +77,22 @@ fn _batch_convert_from_files(file_paths: Vec<(String, String, Option<ConversionO
         })
         .collect();
     
-    batch_convert(items)
+    batch_convert(pdf_app, items)
 }
 
 fn main() {
+    // Initialize the PDF application once for all conversions
+    let pdf_app = match PdfApplication::new() {
+        Ok(app) => app,
+        Err(e) => {
+            println!("Failed to initialize PDF application: {}", e);
+            return;
+        }
+    };
+
     // Example 1: Converting HTML strings to PDFs
     let image_data = fs::read("image.jpg").unwrap();
-    let image_base64 = general_purpose::STANDARD.encode(&image_data, /* input */);
+    let image_base64 = general_purpose::STANDARD.encode(&image_data);
     let html_items = vec![
         (
             format!("<html><body><h1>Hello, world!</h1><img src=\"data:image/jpeg;base64,{image_base64}\" alt=\"Image\" style=\"width:400px;\"></body></html>"),
@@ -116,7 +116,7 @@ fn main() {
     ];
     
     println!("Example 1: Converting HTML strings");
-    let results = batch_convert(html_items);
+    let results = batch_convert(&pdf_app, html_items);
     
     // Print any errors that occurred during batch conversion
     for (i, result) in results.iter().enumerate() {
@@ -125,8 +125,7 @@ fn main() {
         }
     }
     
-    // Example 2: Converting HTML files to PDFs (uncomment and modify paths as needed)
-    /*
+    // Example 2: Converting HTML files to PDFs
     println!("\nExample 2: Converting HTML files");
     let file_items = vec![
         (
@@ -144,7 +143,7 @@ fn main() {
         ),
     ];
     
-    let file_results = batch_convert_from_files(file_items);
+    let file_results = batch_convert_from_files(&pdf_app, file_items);
     
     // Print any errors that occurred during batch conversion
     for (i, result) in file_results.iter().enumerate() {
@@ -152,5 +151,4 @@ fn main() {
             println!("Error converting file {}: {}", i + 1, err);
         }
     }
-    */
 }
