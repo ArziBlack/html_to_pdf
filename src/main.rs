@@ -1,4 +1,5 @@
 use std::{fs, path::Path};
+use base64::{engine::general_purpose, Engine};
 use wkhtmltopdf::{Margin, Orientation, PdfApplication, Size, pdf};
 
 struct ConversionOptions {
@@ -90,9 +91,11 @@ fn batch_convert_from_files(file_paths: Vec<(String, String, Option<ConversionOp
 
 fn main() {
     // Example 1: Converting HTML strings to PDFs
+    let image_data = fs::read("image.jpg").unwrap();
+    let image_base64 = general_purpose::STANDARD.encode(&image_data);
     let html_items = vec![
         (
-            "<html><body><h1>Hello, world!</h1></body></html>".to_string(),
+            format!("<html><body><h1>Hello, world!</h1><img src=\"data:image/jpeg;base64,{image_base64}\" alt=\"Image\" style=\"width:400px;\"></body></html>"),
             "output/file1.pdf".to_string(),
             None
         ),

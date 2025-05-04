@@ -7,3 +7,4 @@ build = "build.rs"
 [dependencies]
 wkhtmlapp = "=1.0.1"
 wkhtmltopdf = "0.4.0"
+base64 = "0.22.1"
