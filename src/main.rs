@@ -301,4 +301,56 @@ fn main() {
             println!("Error converting file {}: {}", i + 1, err);
         }
     }
+
+    // Example 3: Converting HTML string with relative image path
+    println!("\nExample 3: Converting HTML string with relative image path");
+    
+    // Create HTML content with a relative image path
+    let html_with_relative_image = r#"
+    <html>
+    <head>
+        <title>Example 3 - Relative Image Path</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            h1 { color: #2c3e50; }
+            img { max-width: 100%; border: 1px solid #ddd; }
+        </style>
+    </head>
+    <body>
+        <h1>Example with Relative Image Path</h1>
+        <p>This example demonstrates fixing a relative image path in an HTML string.</p>
+        <img src="image.jpg" alt="Test Image" style="width:300px;">
+    </body>
+    </html>
+    "#;
+    
+    // Fix the image paths in the HTML content
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+    let current_dir_str = current_dir.to_string_lossy().to_string();
+    println!("Processing HTML string with current directory: {}", current_dir_str);
+    
+    let fixed_html = fix_image_paths(html_with_relative_image, &current_dir_str);
+    
+    // Convert the fixed HTML to PDF
+    let example3_items = vec![
+        (
+            fixed_html,
+            "output/example3.pdf".to_string(),
+            Some(ConversionOptions {
+                title: "Example 3 - Fixed Relative Path".to_string(),
+                ..ConversionOptions::default()
+            })
+        ),
+    ];
+    
+    let example3_results = batch_convert(&pdf_app, example3_items);
+    
+    // Print any errors that occurred during conversion
+    for (i, result) in example3_results.iter().enumerate() {
+        if let Err(err) = result {
+            println!("Error converting example 3 item {}: {}", i + 1, err);
+        } else {
+            println!("Successfully converted HTML string with relative image to PDF: output/example3.pdf");
+        }
+    }
 }
