@@ -67,7 +67,17 @@ fn batch_convert_from_files(pdf_app: &PdfApplication, file_paths: Vec<(String, S
         .into_iter()
         .map(|(html_path, output_path, options)| {
             match fs::read_to_string(&html_path) {
-                Ok(content) => (content, output_path, options),
+                Ok(content) => {
+                    // Get the absolute directory of the HTML file
+                    let html_dir = Path::new(&html_path).parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|| String::from("."));
+                    
+                    // Replace relative image paths with absolute file:/// URLs
+                    let fixed_content = fix_image_paths(&content, &html_dir);
+                    
+                    (fixed_content, output_path, options)
+                },
                 Err(e) => (
                     String::new(), 
                     output_path.clone(), 
@@ -78,6 +88,146 @@ fn batch_convert_from_files(pdf_app: &PdfApplication, file_paths: Vec<(String, S
         .collect();
     
     batch_convert(pdf_app, items)
+}
+
+// Function to fix relative image paths in HTML content by converting them to base64
+fn fix_image_paths(html_content: &str, base_dir: &str) -> String {
+    // Simple regex-free approach to replace image src attributes
+    let mut result = String::new();
+    let mut remaining = html_content;
+    
+    // Get the project root directory (where Cargo.toml is located)
+    let project_dir = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+    let project_dir_str = project_dir.to_string_lossy().to_string();
+    
+    println!("Project directory: {}", project_dir_str);
+    println!("Base directory: {}", base_dir);
+    
+    while let Some(img_pos) = remaining.find("<img ") {
+        // Add everything before the img tag
+        result.push_str(&remaining[..img_pos + 5]); // +5 to include "<img "
+        
+        // Move remaining past "<img "
+        remaining = &remaining[img_pos + 5..];
+        
+        // Find src attribute
+        if let Some(src_pos) = remaining.find("src=\"") {
+            // Add everything up to the src value
+            result.push_str(&remaining[..src_pos + 5]); // +5 to include "src=\""
+            
+            // Move remaining past "src=\""
+            remaining = &remaining[src_pos + 5..];
+            
+            // Find the end of the src attribute
+            if let Some(end_pos) = remaining.find('"') {
+                let src_value = &remaining[..end_pos];
+                
+                // Only process relative paths (not data: URLs or absolute URLs)
+                if !src_value.starts_with("data:") && !src_value.starts_with("http:") && 
+                   !src_value.starts_with("https:") && !src_value.starts_with("file:") {
+                    
+                    // Resolve the image path
+                    let image_path = if src_value.starts_with("../") {
+                        // For "../image.jpg" style paths, resolve them relative to project root
+                        let file_name = src_value.trim_start_matches("../");
+                        format!("{}/{}", project_dir_str, file_name)
+                    } else if src_value.starts_with("./") {
+                        // For "./image.jpg" style paths
+                        let file_name = src_value.trim_start_matches("./");
+                        format!("{}/{}", base_dir, file_name)
+                    } else {
+                        // For regular relative paths
+                        format!("{}/{}", base_dir, src_value)
+                    };
+                    
+                    println!("Trying to read image from: {}", image_path);
+                    
+                    // Try to read the image file
+                    match fs::read(&image_path) {
+                        Ok(image_data) => {
+                            // Determine MIME type based on file extension
+                            let mime_type = match Path::new(&image_path).extension().and_then(|ext| ext.to_str()) {
+                                Some("jpg") | Some("jpeg") => "image/jpeg",
+                                Some("png") => "image/png",
+                                Some("gif") => "image/gif",
+                                Some("svg") => "image/svg+xml",
+                                Some("webp") => "image/webp",
+                                _ => "image/jpeg", // Default to JPEG if unknown
+                            };
+                            
+                            // Encode the image as base64
+                            let image_base64 = general_purpose::STANDARD.encode(&image_data);
+                            
+                            // Create data URL
+                            let data_url = format!("data:{};base64,{}", mime_type, image_base64);
+                            
+                            // Add the data URL
+                            result.push_str(&data_url);
+                            println!("Successfully embedded image: {}", image_path);
+                        },
+                        Err(e) => {
+                            // If we can't read the image, try one more approach - look in the project root
+                            let file_name = Path::new(src_value).file_name()
+                                .map(|f| f.to_string_lossy().to_string())
+                                .unwrap_or_else(|| src_value.to_string());
+                            
+                            let root_image_path = format!("{}/{}", project_dir_str, file_name);
+                            println!("Trying alternative path: {}", root_image_path);
+                            
+                            match fs::read(&root_image_path) {
+                                Ok(image_data) => {
+                                    // Determine MIME type based on file extension
+                                    let mime_type = match Path::new(&root_image_path).extension().and_then(|ext| ext.to_str()) {
+                                        Some("jpg") | Some("jpeg") => "image/jpeg",
+                                        Some("png") => "image/png",
+                                        Some("gif") => "image/gif",
+                                        Some("svg") => "image/svg+xml",
+                                        Some("webp") => "image/webp",
+                                        _ => "image/jpeg", // Default to JPEG if unknown
+                                    };
+                                    
+                                    // Encode the image as base64
+                                    let image_base64 = general_purpose::STANDARD.encode(&image_data);
+                                    
+                                    // Create data URL
+                                    let data_url = format!("data:{};base64,{}", mime_type, image_base64);
+                                    
+                                    // Add the data URL
+                                    result.push_str(&data_url);
+                                    println!("Successfully embedded image from root: {}", root_image_path);
+                                },
+                                Err(e2) => {
+                                    // If we still can't read the image, keep the original path
+                                    println!("Warning: Could not read image file {} or {}: {} / {}", 
+                                             image_path, root_image_path, e, e2);
+                                    result.push_str(src_value);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Keep the original src for non-relative paths
+                    result.push_str(src_value);
+                }
+                
+                // Move remaining past the src value and its closing quote
+                remaining = &remaining[end_pos..];
+            } else {
+                // No closing quote found, just add the rest and break
+                result.push_str(remaining);
+                break;
+            }
+        } else {
+            // No src attribute found, just add the rest and break
+            result.push_str(remaining);
+            break;
+        }
+    }
+    
+    // Add any remaining content
+    result.push_str(remaining);
+    
+    result
 }
 
 fn main() {
